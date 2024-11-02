@@ -5,6 +5,61 @@ from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 from datetime import datetime
 import uuid
 
+import re
+
+def is_relevant_question(question, guidelines):
+    """
+    Validate if the question is relevant to social skills and dating advice
+    Returns (is_valid, message)
+    """
+    # Convert question to lowercase for better matching
+    question = question.lower()
+    
+    # Check minimum length
+    if len(question.strip()) < 5:
+        return False, "请详细描述你的问题，这样我才能更好地帮助你。"
+    
+    # Keywords for relevant topics
+    relevant_keywords = {
+        "社交": ["聊天", "交往", "互动", "沟通", "朋友", "认识", "社交圈"],
+        "约会": ["约会", "恋爱", "表白", "暗示", "追求", "相亲", "缘分"],
+        "技巧": ["技巧", "方法", "建议", "怎么做", "如何", "策略", "经验"],
+        "关系": ["关系", "感情", "喜欢", "爱情", "暧昧", "相处"],
+        "心理": ["心理", "感受", "情绪", "自信", "压力", "焦虑", "紧张"]
+    }
+    
+    # Count matches in each category
+    matches = 0
+    for category, keywords in relevant_keywords.items():
+        if any(keyword in question for keyword in keywords):
+            matches += 1
+            
+    # Check against negative patterns (questions that should be rejected)
+    negative_patterns = [
+        r'(广告|推广|营销|赚钱|理财)',
+        r'(黄色|色情|约炮|一夜情)',
+        r'(违法|犯罪|黑客|攻击)',
+        r'(博彩|赌博|彩票)',
+        r'(政治|宗教|种族)'
+    ]
+    
+    for pattern in negative_patterns:
+        if re.search(pattern, question):
+            return False, "抱歉，这个问题超出了社交技能辅导的范围。请咨询与社交、约会和人际关系相关的问题。"
+            
+    # Question must match at least one relevant category
+    if matches == 0:
+        suggestions = "\n".join([
+            "- 如何自然开始对话",
+            "- 约会时的话题选择",
+            "- 如何展现自信",
+            "- 理解对方的暗示",
+            "- 建立良好的社交关系"
+        ])
+        return False, f"请问一些与社交技能、约会和人际关系相关的问题。例如：\n{suggestions}"
+        
+    return True, ""
+
 def load_training_data(filename='./history.json'):
     default_system_prompt = """你现在是一个社交技能教练，帮助人们提升约会和社交能力。请注意:
     1. 给出实用、得体的建议
@@ -229,13 +284,22 @@ def handle_conversation():
                 continue
                 
             if user_input.lower() in ["退出", "exit", "quit"]:
-                # 在退出前保存对话
                 if current_conversation["messages"]:
                     metadata = analyze_conversation_topic(current_conversation["messages"])
                     current_conversation["metadata"].update(metadata)
                     save_conversation("./history.json", full_data, current_conversation)
                 print("\n情场军师: 祝你社交顺利！记住保持真诚、自信和尊重。")
                 break
+                
+            # Validate user input
+            is_valid, validation_message = is_relevant_question(
+                user_input, 
+                full_data["指导原则"]
+            )
+            
+            if not is_valid:
+                print("\n情场军师:", validation_message)
+                continue
             
             # 查找相关例子
             relevant_example = find_relevant_example(user_input, training_history)
@@ -268,7 +332,6 @@ def handle_conversation():
             chat_history.append(AIMessage(content=str(result)))
             
         except KeyboardInterrupt:
-            # 保存当前对话
             if current_conversation["messages"]:
                 metadata = analyze_conversation_topic(current_conversation["messages"])
                 current_conversation["metadata"].update(metadata)
